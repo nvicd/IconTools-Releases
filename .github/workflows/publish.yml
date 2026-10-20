@@ -1,0 +1,55 @@
+name: Publish signed Icon Tools release
+
+on:
+  push:
+    branches:
+      - incoming
+
+concurrency:
+  group: publish-icon-tools
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out incoming payload
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install verifier
+        run: python -m pip install --disable-pip-version-check cryptography==50.0.2
+
+      - name: Verify and reconstruct executable
+        id: verify
+        shell: bash
+        run: |
+          tag="$(python release-tools/verify_publish.py .)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.verify.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" IconTools.exe latest.json --clobber
+            gh release edit "$TAG" --latest --title "Icon Tools ${TAG#icon-tools-}"
+          else
+            gh release create "$TAG" IconTools.exe latest.json \
+              --latest --title "Icon Tools ${TAG#icon-tools-}" \
+              --notes "Signed Windows release for Icon Tools."
+          fi
+
+      - name: Remove transient incoming branch
+        if: success()
+        shell: bash
+        run: git push origin --delete incoming
